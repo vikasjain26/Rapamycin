@@ -17,6 +17,8 @@ from matplotlib_venn import venn2 , venn2_unweighted
 from matplotlib.offsetbox import AnchoredText
 import numpy as np
 import pandas as pd
+import LogisticRegression as LR
+import matplotlib.gridspec as gridspec
 ROOT = r"D:\PhD-Tomer"
 LIB_PATH = "Tools_and_Libraries"
 PROJECT_PATH = "Projects"
@@ -25,11 +27,14 @@ DATA_SOURCE_FOLDER = "input"
 OUTPUT_PARENT_FOLDER = "output"
 runId = "Exp_1"
 
+UNIVARIATE = True
 #compared_groups=["Rapa_Live_Rapa_Dead","PBS_Live_PBS_Dead","Rapa_Dead_PBS_Dead","Rapa_Live_PBS_Live","Live_Dead"]
-#compared_groups = ["Live_Dead"]
-#GROUP = ["All","PBS","Rap"]
-GROUP = ["All"]
-strains = ["X31","Vie1023","Cal09"]
+if UNIVARIATE:
+    compared_groups = ["Live_Dead","PBS","Rap"]
+else:
+    compared_groups = ["Live_Dead"]
+#GROUP = ["All"]
+strains = ["X31","Vie1203","Cal09"]
 
 loggerobj =Logger.get_Logger("Rapa_Logger")
 import_Lib_path = os.path.join(ROOT,LIB_PATH)
@@ -41,8 +46,14 @@ from LielTools import GLM_functions as glm
 from SigniCorr import signi_corr
 from LielTools import PlotTools as pT
 #from LielTools import PlotTools
-alpha_range = [0.001, 0.005, 0.01, 0.05, 0.1, 0.2, 0.4, 0.7, 1, 2, 5, 10, 50]
-l1_range = [0.001, 0.005, 0.01, 0.05, 0.1, 0.2, 0.4, 0.7, 0.99]
+DEBUG = False
+if DEBUG:
+    alpha_range = [0.1,0.2,0.4, 0.7,1, 2, 4,5, 10, 20,30,50]
+    l1_range =    [0.01, 0.05, 0.1,0.2, 0.4, 0.7, 0.99]
+else:
+    alpha_range = [0.01, 0.05, 0.1, 0.2, 0.4, 0.7, 1, 2, 5, 10, 50]
+    l1_range = [0.01, 0.05, 0.1, 0.2, 0.4, 0.7, 0.99]
+
 
 #keys for the dictionary of types of experiment to run
 CO_I_FW = "co_i_fw"
@@ -74,8 +85,10 @@ expDict = {NCO:"exp_NoCovariate",NCO_FD:"exp_NoCovariate_FDR",NCO_FW:"exp_NoCova
 expDict = {NCO:"exp_NoCovariate"}
 
 
-standardizemethod = ["ShaprioTest","TransformAll","No_logTranform"]
+standardizemethod = ["ShaprioTest"]
 
+GLM_res_dict={}
+#standardizemethod = ["No_logTranform"]
 def get_str_of_date(time=False):
     """
     The function take a boolean paramter to whehter to generate a string current time or date
@@ -144,11 +157,11 @@ def createOutputDirectories(output_path,protien_isotype,foldername,experimentFol
     path = FileTools.create_folder(os.path.join(folderPath,experimentFolderName))
     return path 
 
-def readInputFiles(file_path,file_name,read_index = None):
+def readInputFiles(file_path,file_name,read_index = None,keep_default_na=True):
     """
     """
     try:
-        dataFrame = FileTools.read_excel(os.path.join(file_path,file_name),indexCol=read_index)
+        dataFrame = FileTools.read_excel(os.path.join(file_path,file_name),indexCol=read_index,keep_default_na=keep_default_na)
     except FileNotFoundError:
         raise
     return dataFrame
@@ -170,29 +183,32 @@ def startuniAnalysis(protien_isotype,inputFilePath,experimentPath,exptype,groupT
     processedFile = path+r"\{}".format(protien_isotype)
     #data = get_processed_data(protien_isotype,inputpath=inputFilePath,outputpath=p,stMethod=stdmethod,Gtype=groupType)
     data = get_processed_data(protien_isotype,inputpath=inputFilePath,stMethod=stdmethod,processedFileoutputpath = processedFile,Gtype=groupType,univariate = True)
-    outcomevar[0]= "survival_group_bin"
+    outcomevar[0]= "survival_group"
     #log the ratio of outcome variable 
     #print("The ratio of live:dead outcome is: \n",data[outcomevar[0]].value_counts())
     # below code only for 4 group comparsion
     '''
     if groupType == "Live_Dead":
         #loggerobj.info('dataframe - \n {}'.format(data[["survival_group","survival_group_bin"]].to_string()))
-        outcomevar[0]= "survival_group_bin"
+        outcomevar[0]= "survival_group_Dead"
     else:
         #loggerobj.info('dataframe - \n {}'.format(data[["group","group_bin"]].to_string()))
-        outcomevar[0]= "group_bin"
+        outcomevar[0]= "Group_PBS"
     '''
     res = performGLM(data,groupType,exptype)
     outputFilename = "GLM_"+protien_isotype+"_"+stdmethod+"_"+groupType+".xlsx"
     writeOutputFile(experimentPath,outputFilename,res,write_index=True)
+    
     return res
 
     
-def multivaraite_analysis(protien_iso,outputpath,inputFilePath,stdmethod = "All",processedFilepath="",group_type=""):
+def multivaraite_analysis(protien_iso,outputpath,inputFilePath,stdmethod = "All",processedFilepath="",group_type="",standarise = False,
+                          cv = False):
     """
     """
     data = get_processed_data(protien_iso,inputpath=inputFilePath,stMethod=stdmethod,processedFileoutputpath = processedFilepath,Gtype=group_type)
-    data = get_standardised_df(data)
+    if standarise:
+        data = get_standardised_df(data)
     '''
     fig = signi_corr.plot_signi_corr(data,signif_by_method="FDR",figsize=(20,15),aster_size=5,
                     numbers_size=5,ticks_fontsize=10,title="correlation {}".format(protien_iso))
@@ -202,17 +218,26 @@ def multivaraite_analysis(protien_iso,outputpath,inputFilePath,stdmethod = "All"
     '''
 
     
-    outcome = "survival_group_Dead"
+    outcome = "survival_group"
     #remove the outcome column dataframe 
     x_cols_list = DataTools.list_removeItemIfExists(list(data.columns),outcome)
-    #elasticnetTune = glm.tune_GLM_elastic_net(outputpath,model_df = data,y_col_name=outcome,x_cols_list = x_cols_list,
-    #model_name="GLM_{}_{}".format(protien_iso,stdmethod),alphas=alpha_range,l1s=l1_range,cv_folds=5)
+    
+    common_peptide_list = get_common_peptides_between_LR_EFT(processedFilepath,protien_iso,stdmethod,group_type)
+    #if cross_validation is false read from the already generated l1 and l2 value list 
+    if not cv:
+        l1_l2_df = readInputFiles(processedFilepath,"L1_L2_weights_{}_{}.xlsx".format(stdmethod,protien_iso),read_index=0)
+    resdict= LR.glm_nested_loo(data,l1_l2_df,outcome, x_cols_list,outputpath,protien_iso,stdmethod,alpha_range,l1_range,5,bar_figsize=(50,25),heatmap_figsize=(30,20)
+                    , common_peptide_highlight=common_peptide_list)
+    GLM_res_dict.update({protien_iso:resdict})
+    '''
+    elasticnetTune = glm.tune_GLM_elastic_net(outputpath,model_df = data,y_col_name=outcome,x_cols_list = x_cols_list,
+    model_name="GLM_{}_{}".format(protien_iso,stdmethod),alphas=alpha_range,l1s=l1_range,cv_folds=5)
     #loggerobj.debug("table for set of alpha:%s and l1:%s\n",alpha_range,l1_range)
     #loggerobj.debug("{}".format(elasticnetTune.to_string()))
     l1,l2 = get_l1_L2_tunned_parameter(protien_iso,stdmethod)
     glm.glm_LOO(outputpath, model_df = data,y_col_name=outcome,x_cols_list = x_cols_list, model_name="GLM_{}_{}".format(stdmethod,protien_iso),
             alpha=l1, L1_wt=l2, heatmap_annotate_text=True, logistic=True,bar_figsize=(20,18),heatmap_figsize=(20,18))
-    
+    '''
 
     
 def performGLM(df,gtype,exptype):
@@ -359,6 +384,7 @@ def draw_lollipop_chart(df,colList=[],fig_rows=4, fig_cols=5, figsize=(30, 20),
     fig.suptitle(title, fontsize=title_fontsize)
     fig.tight_layout()
     plt.savefig(fig_save_path, bbox_inches='tight')
+    plt.close("all")
 
     
 def get_log_transformation(df,standardizeMethod = "NoTransform"):
@@ -466,17 +492,22 @@ def get_processed_data(protien_isotype,inputpath="",processedFileoutputpath="",l
         #below code is only needed for 4 group comparsions 
             '''
             if Gtype == "Live_Dead":
-                df = DataTools.get_df_without_cols(df,["group"])
-                df = get_labels_forcategorical(df,"survival_group")
+                df = DataTools.get_df_without_cols(df,["Group"])
+                df =  DataTools.convert_CategoricalToBinary(df)
             else:
                 df = DataTools.get_df_without_cols(df,["survival_group"])
-                df = get_labels_forcategorical(df,"group")
+                df = DataTools.convert_CategoricalToBinary(df)
             '''
-            df = DataTools.get_df_without_cols(df,["group","Group","Weight"])
-            df = get_labels_forcategorical(df,"survival_group")
-
+            df = DataTools.get_df_without_cols(df,["group","Group"])
+            #df = DataTools.convert_CategoricalToBinary(df)
+            print(df['survival_group'].value_counts())
+            df["survival_group"] = df["survival_group"].replace(["Live","Dead"],[1,0])
+            #df['survival_group']=np.where(df['survival_group']=='Dead',0,1)
+            print(df['survival_group'].value_counts())
         else:
-            df = DataTools.convert_CategoricalToBinary(df)
+            #df = DataTools.convert_CategoricalToBinary(df)
+            df["survival_group"] = df["survival_group"].replace(["Live","Dead"],[1,0])
+            df["Group"] = df["Group"].replace(["PBS","RAP"],[0,1])
         writeOutputFile(processedFileoutputpath,optFilename,df)
     
     return df
@@ -499,7 +530,7 @@ def get_df_with_filtered_peptide(protien_isotype,inputpath="",Gtype =""):
 
     #get peptides from  the blind filtered list based on the groups
 
-    if Gtype == "All":
+    if Gtype == "Live_Dead":
         filteredPeptideFilename = "filtered_Live_Dead_peptide_lists_{}.xlsx".format(protien_isotype)
     elif Gtype == "Rap":
         filteredPeptideFilename = "filtered_peptide_lists_paired_Rapa_Live_Rapa_Dead_{}.xlsx".format(protien_isotype)
@@ -526,17 +557,17 @@ def get_compared_groups_on_pvalue(expPath,protien_isotype,stMethod,adjustPvalue=
     col_name = ["Antigen","P-value","group_names","Adjusted_pvalue"]
     
     data = pd.DataFrame(columns= col_name)
-    for g in GROUP:
+    for g in compared_groups:
 
         tempdf = pd.DataFrame()
         filename = "GLM_"+protien_isotype+"_"+stMethod+"_"+g+".xlsx"
         df=  readInputFiles(expPath,filename,0)
         df = df.dropna()
         if adjustPvalue:
-            df= df[df["pvalue_FDR"]<0.2]
+            df= df[df["pvalue_FDR"]<=0.2]
             tempdf["Adjusted_pvalue"] = df["pvalue_FDR"].to_numpy()
         else:
-            df = df[df["pvalue"]<0.05]
+            df = df[df["pvalue"]<=0.05]
         tempdf["Antigen"] = df.index.to_list()
         tempdf["P-value"] = df["pvalue"].to_numpy()
         match g:
@@ -550,6 +581,11 @@ def get_compared_groups_on_pvalue(expPath,protien_isotype,stMethod,adjustPvalue=
                 tempdf["group_names"] = ["Rapa_Live vs. PBS_Live"]*df.shape[0]
             case "Live_Dead":
                 tempdf["group_names"] = ["Live vs. Dead"]*df.shape[0]
+            case "PBS":
+                tempdf["group_names"] = ["PBS_Live vs. PBS_Dead"]*df.shape[0]
+            case "Rap":
+                tempdf["group_names"] = ["Rapa_Live vs. Rapa_Dead"]*df.shape[0]
+
         data = pd.concat([data,tempdf])
     return data
             
@@ -559,17 +595,52 @@ def get_compared_groups_on_pvalue(expPath,protien_isotype,stMethod,adjustPvalue=
 def draw_venndiagram(df,dfcompare,label=("",""),fig_rows=4, fig_cols=5, figsize=(30, 20),fig_save_path = "",title = "",
                         title_fontsize =14,colormap = ("orange","blue"),item_fontsize = 8,isannotate = False):
     
-    fig, axes = plt.subplots(fig_rows, fig_cols, figsize=figsize,squeeze=False)
-    group_size = len(GROUP)
+    sns.set_palette(sns.color_palette("Set2"))
+
+    #fig, axes = plt.subplots(fig_rows, fig_cols, figsize=figsize,squeeze=False)
+    fig = plt.figure(figsize= figsize)
+    subplot = 220
+    for i in range(len(compared_groups)):
+        subplot+=1
+        group_name = get_comparisionname_from_group(compared_groups[i])
+        #create a set for the particular group 
+        LRGroup = set(df.loc[df["group_names"]==group_name,"Antigen"].to_numpy())
+        EFTGroup = set(dfcompare.loc[dfcompare["group_names"]==group_name,"Antigen"].to_numpy())
+        if i ==2:
+            ax = plt.subplot2grid((2,1),(i//2,i%2),colspan=4)
+        else:
+            ax= fig.add_subplot(subplot)
+        
+        v = venn2_unweighted([LRGroup,EFTGroup],set_labels = label,ax = ax,set_colors=colormap,alpha=0.5)
+        if isannotate:
+            if(LRGroup-EFTGroup):
+                v.get_label_by_id('10').set_text("\n".join(LRGroup-EFTGroup))
+                v.get_label_by_id('10').set_fontsize(item_fontsize)
+            else:
+                v.get_label_by_id('10').set_text("")
+            if(EFTGroup-LRGroup):
+                v.get_label_by_id('01').set_text("\n".join(EFTGroup-LRGroup))
+                v.get_label_by_id('01').set_fontsize(item_fontsize)
+            if (LRGroup&EFTGroup):
+                v.get_label_by_id('11').set_text("\n".join(LRGroup&EFTGroup))
+                v.get_label_by_id('11').set_fontsize(item_fontsize)
+        ax.set_title(label = group_name,loc="center",fontsize=20)
+    
+    '''
+    gs = gridspec.GridSpec(2, 2)
+    group_size = len(compared_groups)
     i = 0 
+    lr_eft_intersection_dict = {}
     for row in range(fig_rows):
         for col in range(fig_cols):
              if (i<group_size):
-                 group_name = get_comparisionname_from_group(GROUP[i])
+                 group_name = get_comparisionname_from_group(compared_groups[i])
                 #create a set for the particular group 
                  LRGroup = set(df.loc[df["group_names"]==group_name,"Antigen"].to_numpy())
                  EFTGroup = set(dfcompare.loc[dfcompare["group_names"]==group_name,"Antigen"].to_numpy())
-                 v = venn2_unweighted([LRGroup,EFTGroup],set_labels = label,ax = axes[row][col],set_colors=colormap,alpha=0.5)
+                 lr_eft_intersection_dict.update({compared_groups[i]:LRGroup&EFTGroup})
+                 ax = plt.subplot(gs[0, 0:2])
+                 v = venn2_unweighted([LRGroup,EFTGroup],set_labels = label,ax = ax,set_colors=colormap,alpha=0.5)
                  if isannotate:
                     if(LRGroup-EFTGroup):
                         v.get_label_by_id('10').set_text("\n".join(LRGroup-EFTGroup))
@@ -583,13 +654,16 @@ def draw_venndiagram(df,dfcompare,label=("",""),fig_rows=4, fig_cols=5, figsize=
                         v.get_label_by_id('11').set_text("\n".join(LRGroup&EFTGroup))
                         v.get_label_by_id('11').set_fontsize(item_fontsize)
                  axes[row][col].set_title(label = group_name,loc="center")
+            
+             else:
+                fig.delaxes(axes[row,col])
              i+=1
-
-    if group_size%2!=0:
-        fig.delaxes(axes[2,1])
+    '''
     fig.suptitle(title, fontsize=title_fontsize)
     fig.tight_layout()
     fig.savefig(fig_save_path, bbox_inches='tight')
+    plt.close("all")
+    #return lr_eft_intersection_dict
 
 
 
@@ -607,13 +681,16 @@ def get_comparisionname_from_group(groupname):
                 name = "Rapa_Live vs. PBS_Live"
             case "Live_Dead":
                 name = "Live vs. Dead"
+            case "PBS":
+                name = "PBS_Live vs. PBS_Dead"
+            case "Rap":
+                name = "Rapa_Live vs. Rapa_Dead"
     
     return name
 
 
-def plot_venn_diagram(expPath,expType,protien_isotype,stMethod):
-    #temp need to change this is future 
-    
+def get_fisher_test_sig_peptide(expPath,expType,protien_isotype,stMethod):
+
         eftpath = os.path.join(ROOT,PROJECT_PATH,project_name,DATA_SOURCE_FOLDER)
         if (expType =="nco"):
             df = get_compared_groups_on_pvalue(expPath,protien_isotype,stMethod)
@@ -621,9 +698,27 @@ def plot_venn_diagram(expPath,expType,protien_isotype,stMethod):
             df = get_compared_groups_on_pvalue(expPath,protien_isotype,stMethod,True)
         path = os.path.join(eftpath,"Array_"+protien_isotype)
         
-        #create an excel file 
         #p = os.path.join(expPath,"All_sig_peptide.xlsx")
         writeOutputFile(expPath,"All_sig_peptide_{}.xlsx".format(stMethod),df)
+
+def plot_venn_diagram(expPath,expType,protien_isotype,stMethod):
+    #temp need to change this is future 
+    
+        eftpath = os.path.join(ROOT,PROJECT_PATH,project_name,DATA_SOURCE_FOLDER)
+        filename = os.path.join(expPath,"All_sig_peptide_{}.xlsx".format(stMethod))
+        path = os.path.join(eftpath,"Array_"+protien_isotype)
+        ''''
+        if (expType =="nco"):
+            df = get_compared_groups_on_pvalue(expPath,protien_isotype,stMethod)
+        else:
+            df = get_compared_groups_on_pvalue(expPath,protien_isotype,stMethod,True)
+       
+        
+        #create an excel file 
+        #p = os.path.join(expPath,"All_sig_peptide.xlsx")
+        #writeOutputFile(expPath,"All_sig_peptide_{}.xlsx".format(stMethod),df)
+        '''
+        df = readInputFiles(expPath,"All_sig_peptide_{}.xlsx".format(stMethod))
         sigLive_dead = "all_sig_peptides_Live_Dead_peptide_{}.xlsx".format(protien_isotype)
         sig_all_4_comp = "all_sig_4_comp_peptides_{}.xlsx".format(protien_isotype)
         sigLive_deaddf = readInputFiles(path,sigLive_dead,None)
@@ -633,11 +728,11 @@ def plot_venn_diagram(expPath,expType,protien_isotype,stMethod):
         #create a folder figures
         fig_path = FileTools.create_folder(os.path.join(expPath,"Figures"))
         fig_path = os.path.join(fig_path,"Sig_peptide_venn_{}_{}.jpg".format(stMethod,protien_isotype))
-        draw_venndiagram(df,df2,label=("Logistic Regression","Fischer's exact Test"),fig_rows=3,fig_cols=2,title=title,fig_save_path=fig_path,item_fontsize=6)
+        return draw_venndiagram(df,df2,label=("Logistic Regression","Fisher's exact Test"),fig_rows=3,fig_cols=2,title=title,fig_save_path=fig_path,item_fontsize=6,isannotate=True)
 
 def plot_lollipop(expPath,expType,protien_isotype,stMethod):
     
-    for g in GROUP:
+    for g in compared_groups:
         filename = "GLM_"+protien_isotype+"_"+stMethod+"_"+g+".xlsx"
         comparisonGroup = get_comparisionname_from_group(g)
         df=  readInputFiles(expPath,filename,0)
@@ -657,8 +752,8 @@ def plot_lollipop(expPath,expType,protien_isotype,stMethod):
 
 
 def get_last_createdFolder(path):
-     folderLst = FileTools.get_subfolders(path)
-     return  FileTools.get_latest_folder(folderLst)
+     #folderLst = FileTools.get_subfolders(path)
+     return  FileTools.get_latest_folder_from_path(path)
 
 def get_labels_forcategorical(df,col_name):
 
@@ -703,7 +798,7 @@ def get_rapa_array_df(array_data_path,protien_isotype):
     return array_data
 
 def rapa_draw_df_box_plot(x_col,y_col_names,modeldf,df = None,output_file_path=None, fig_rows=4, fig_cols=5, figsize=(30, 20),
-                          title='', title_fontsize=18, title_y=1.03, font_scale=1, sns_style='ticks',hue_col=None,
+                          title='', title_fontsize=18, title_y=1.03, font_scale=1, sns_style='ticks',hue_col=None,plot_with_boder = [],
                           **boxplot_kwargs):
     """
     """
@@ -737,6 +832,17 @@ def rapa_draw_df_box_plot(x_col,y_col_names,modeldf,df = None,output_file_path=N
                 axes[row,col].add_artist(at)
                 axes[row,col].tick_params(axis='x', labelsize=8)
                 axes[row,col].tick_params(axis='y', labelsize=8)
+                if y_col_names[i] in plot_with_boder:
+                    axes[row,col].spines['bottom'].set_color('red')
+                    axes[row,col].spines['top'].set_color('red')
+                    axes[row,col].spines['left'].set_color('red')
+                    axes[row,col].spines['right'].set_color('red')
+                    '''
+                    ax = axes[row,col].axis()
+                    rec = plt.Rectangle((ax[0] - 0.7, ax[2] - 0.5), (ax[1] - ax[0]) + 1, (ax[3] - ax[2]) + 0.4, fill=False, lw=2, edgecolor="red")
+                    rec = axes[row,col].add_patch(rec)
+                    rec.set_clip_on(False)
+                    '''
                 '''
                 x = df[y_col_names[i]].max()
                 text_color = "black"
@@ -751,7 +857,7 @@ def rapa_draw_df_box_plot(x_col,y_col_names,modeldf,df = None,output_file_path=N
 
     if output_file_path is not None:
         fig.savefig(output_file_path, bbox_inches='tight', dpi=500)
-
+    plt.close("all")
     return axes
 
 
@@ -803,3 +909,33 @@ def get_l1_L2_tunned_parameter(protien,logTranform):
             l2 = 0.01
 
     return l1,l2
+
+def get_common_peptides_between_LR_EFT(df1,df2,group):
+    #temp need to change this is future 
+    
+        '''
+        eftpath = os.path.join(ROOT,PROJECT_PATH,project_name,DATA_SOURCE_FOLDER)
+        filename = os.path.join(expPath,"All_sig_peptide_{}.xlsx".format(stMethod))
+        path = os.path.join(eftpath,"Array_"+protien_isotype)
+        
+        if (expType =="nco"):
+            df = get_compared_groups_on_pvalue(expPath,protien_isotype,stMethod)
+        else:
+            df = get_compared_groups_on_pvalue(expPath,protien_isotype,stMethod,True)
+       
+        
+        #create an excel file 
+        #p = os.path.join(expPath,"All_sig_peptide.xlsx")
+        #writeOutputFile(expPath,"All_sig_peptide_{}.xlsx".format(stMethod),df)
+        
+        df = readInputFiles(expPath,"All_sig_peptide_{}.xlsx".format(stMethod))
+        sigLive_dead = "all_sig_peptides_Live_Dead_peptide_{}.xlsx".format(protien_isotype)
+        #sig_all_4_comp = "all_sig_4_comp_peptides_{}.xlsx".format(protien_isotype)
+        sigLive_deaddf = readInputFiles(path,sigLive_dead,0)
+        #sig_all_4_compdf = readInputFiles(path,sig_all_4_comp,None) 
+        '''
+        group_name = get_comparisionname_from_group(group)
+        #create a set for the particular group 
+        LRGroup = set(df1.loc[df1["group_names"]==group_name,"Antigen"].to_numpy())
+        EFTGroup = set(df2.loc[df2["group_names"]==group_name,"Antigen"].to_numpy())
+        return (LRGroup,EFTGroup)
