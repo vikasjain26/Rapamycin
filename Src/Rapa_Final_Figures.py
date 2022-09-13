@@ -10,6 +10,7 @@ from sklearn.preprocessing import StandardScaler
 import matplotlib.patches as mpatches
 import numpy as np
 import logging
+import pickle
 
 protien_iso= ["HA_IgG","HA_IgM","NA_IgG","NA_IgM"]
 import_Lib_path = os.path.join(rt.ROOT,rt.LIB_PATH)
@@ -107,7 +108,7 @@ def Roc_Auc_plot(df,fig_size = (8,6),xlabel="",ylabel="",xylabel_fontsize=22,
     plt.xlabel(xlabel,fontdict={"size":xylabel_fontsize})
     plt.ylabel(ylabel,fontdict={"size":xylabel_fontsize})
     plt.title(title, fontweight=title_font, fontsize=title_fonsize)
-    plt.legend(prop={'size':13,"weight":"bold"}, loc='lower right')
+    plt.legend(prop={'size':18,"weight":"bold"}, loc='lower right')
     plt.tight_layout()
     if plot_save_path is None:
         plt.show()
@@ -121,24 +122,18 @@ def get_data(filename,file_path,pro_iso,index=None):
      dir = os.path.join(file_path,pro_iso)
      df = readInputFiles(dir,filename,index)
      return df
-results_df = rt.readInputFiles(output_path,"RoC_AUC_protiens.xlsx",0)
+#results_df = rt.readInputFiles(os.path.join(output_path,"HA_NA_IgG_IgM"),"RoC_AUC_for_different_features_by_importanc.xlsx",0)
+results_df = rt.readInputFiles(output_path,"RoC_AUC_protiens_summaryforall.xlsx",0)
 def plot_summary_stats_auc():
 
-    auc_bar_plot(results_df, ycol = "Auc",plot_save_path= os.path.join(output_path,"Final Figures","predict significant peptide summary 2.jpg"), xtick_rotation = 45
+    auc_bar_plot(results_df, ycol = "Auc",plot_save_path= os.path.join(output_path,"Final Figures","Bar plot ROC AUC summary 1.jpg"), xtick_rotation = 45
              , xlabel_title = "Model", ylabel_title = "AUC",
-             title="AUC Summary", show_bar_labels = True)
-    Roc_Auc_plot(results_df,plot_save_path= os.path.join(output_path,"Final Figures","Roc Auc Summary 2.jpg"),
-             xlabel = "False Positive Rate", ylabel="True Positive Rate",title= "Roc AUC Analysis summary", xylabel_fontsize = 25)
+             title="AUC Summary", show_bar_labels = False,fig_size=(8,6))
+    Roc_Auc_plot(results_df,plot_save_path= os.path.join(output_path,"Final Figures","ROC AUC Summary 6.jpg"),
+             xlabel = "False Positive Rate", ylabel="True Positive Rate",title= "Roc AUC summary", xylabel_fontsize = 25,fig_size=(8,6))
     
-#plot_summary_stats_auc()
 
-def plot_venn():
-    
-    title = "Significant peptide {}".format(pro_iso)
-    rt.draw_venndiagram(lr_df,eft_df,label=("Logistic Regression","Fisher's exact Test"),fig_rows=3,fig_cols=2,
-                         title=title,fig_save_path=os.path.join(output_path,"Final Figures","Sig_peptide_venn_{}.jpg".format(pro_iso)),item_fontsize=10,
-                         isannotate=True,
-                         title_fontsize=25,colormap=("pink","lightblue"))
+
 
 
 def plot_peptide_params():
@@ -165,21 +160,81 @@ def plot_peptide_params():
              title=title_text,y_error="Std",color_specific_labels=color_specfic_label_dict
              ,add_legend = True,Legend_label=["Logistic Regression"," LR intersection Fisher's"])
 
-plot_peptide_params()
+
+
+def plot_LR_vs_FET(compareGroup):
+
+    venn_dict={}
+    for pro_iso in protien_iso:
+        eft_df=readInputFiles(os.path.join(input_path,"Array_"+pro_iso),"all_sig_peptides.xlsx",0)
+        lr_df = get_data("All_sig_peptide_ShaprioTest.xlsx",output_path,pro_iso)
+        lr_df,eft_df = rt.get_common_peptides_between_LR_EFT(lr_df,eft_df,compareGroup)
+        venn_dict.update({pro_iso:[lr_df,eft_df]})
+    #plot venn diagram 
+    group_name = rt.get_comparisionname_from_group(compareGroup)
+    title = "Significant peptides {}".format(group_name)
+    rt.draw_venndiagram(venn_dict,label=("Logistic Regression","Fisher's exact Test"),fig_rows=2,fig_cols=2,
+                         title=title,fig_save_path=os.path.join(output_path,"Final Figures","Sig_peptide_venn_{} 1.jpg".format(group_name)),item_fontsize=10,
+                         isannotate=True,
+                         title_fontsize=25,colormap=("pink","lightblue"),figsize=(30, 20))
+
 def spearman():
     
-        '''
-        df = get_data("GLM_{}_ShaprioTest_Live_Dead.xlsx".format(pro_iso),output_path,pro_iso=pro_iso)
-        original_df = get_data("array_data_RAPA3_{}.xlsx".format(pro_iso),input_path,pro_iso="Array_"+pro_iso)
-        original_df = DataTools.get_df_with_cols(original_df,df.columns)
-        original_df = original_df.drop("survival_group",axis=1)
-
-        PlotTools.plot_boxplot_subplots(original_df,"Group",original_df.columns[110:len(original_df)],output_file_path = output_path+"\{}_2.jpg".format(pro_iso,pro_iso),
-                              fig_rows=11, fig_cols=5,xy_title_fontsize=10,xRotation=0)
+        for pro_iso in protien_iso:
+            df = get_data("GLM_{}_ShaprioTest_Live_Dead.xlsx".format(pro_iso),output_path,pro_iso=pro_iso)
+            original_df = get_data("array_data_RAPA3_{}.xlsx".format(pro_iso),input_path,pro_iso="Array_"+pro_iso)
+            original_df = DataTools.get_df_with_cols(original_df,df.columns)
+            #original_df = original_df.drop("survival_group",axis=1)
+            PlotTools.plot_boxplot_subplots(original_df,"survival_group",original_df.columns[30:60],output_file_path = output_path+"\{}_survival_box_2.jpg".format(pro_iso,pro_iso),
+                              fig_rows=6, fig_cols=5,xy_title_fontsize=10,xRotation=0)
         
 
         #corrmat = StatsTools.getCorrelationMat(original_df,"spearman")
       
+
+
+def get_short_name_for_strain(protien,strain):
+    if protien[0:2]=="HA":
+        if strain == "X31":
+            return "H3"
+        elif strain == "Cal09":
+            return "H1"
+        else:
+            return "H5"
+    else:
+        if strain == "X31":
+          return "N2"
+        elif strain == "Cal09":
+            return "Cal_N1"
+        else:
+            return "Vie_N1"
+
+
+def get_protien_length(protien,strain):
+    a_file = open("C:\\Users\Vikas jain\\Downloads\\align.pkl", "rb") 
+    output = pickle.load(a_file)
+    pro_len = 0
+    if protien[0:2]=="HA":
+        if strain == "X31":
+            pro_len = max(output["H3"].keys())
+        elif strain == "Cal09":
+            pro_len = max(output["H1"].keys())
+        else:
+            pro_len = max(output["H5"].keys())
+    else:
+        if strain == "X31":
+            pro_len = max(output["N2"].keys())
+        elif strain == "Cal09":
+            pro_len = max(output["Cal_N1"].keys())
+        else:
+            pro_len = max(output["Vie_N1"].keys())
+    a_file.close()
+    return pro_len
+
+
+
+def get_scores_protien_structure():
+    """     for pro_iso in protien_iso:
         ax = PlotTools.plot_heatmap(original_df.corr(),figsize=(40,30),xRotation = 90,yRotation=0,annotate_text = True,
                                     font_scale = 1.2)
         plt.savefig(output_path+"\{}_heatmap.jpg".format(pro_iso),dpi=500)
@@ -189,10 +244,6 @@ def spearman():
         #df2 = readInputFiles(path,"all_sig_peptides.xlsx",0)
         title = "Significant peptide {}".format(pro_iso)
         '''
-
-
-""" for pro_iso in protien_iso:
-      
         #bar plot of the params
         #get comman peptides in EFT and LR
         eft_df=readInputFiles(os.path.join(input_path,"Array_"+pro_iso),"all_sig_peptides.xlsx",0)
@@ -220,20 +271,64 @@ def spearman():
                          title=title,fig_save_path=os.path.join(output_path,"Final Figures","Sig_peptide_venn_{}.jpg".format(pro_iso)),item_fontsize=10,isannotate=True,
                          title_fontsize=25,colormap=("pink","lightblue"))
         '''
-        
+        """
+    for pro_iso in protien_iso:
+        glm_result_df = rt.readInputFiles(os.path.join(output_path,pro_iso),"params_stats____GLM_ShaprioTest_{}.xlsx".format(pro_iso),0)
+        glm_res_less = glm_result_df.loc[(glm_result_df["Mean"]<-0.15)]
+        glm_res_more = glm_result_df.loc[(glm_result_df["Mean"]>0.15)]
+        glm_result_df = pd.concat([glm_res_less,glm_res_more])
+        overlap_df = pd.DataFrame(columns=["scores"],index=rt.strains)
+        if pro_iso[0:2]=="HA":
+            resdict = dict.fromkeys(["H3","H5","H1"])
+        else:
+            resdict = dict.fromkeys(["N2","Vie_N1","Cal_N1"])
         for strain in rt.strains:
             df =  glm_result_df[glm_result_df.index.str.contains(strain)].copy()
             df.set_index(df.index.str.removeprefix(pro_iso[0:2]+"_"+strain+"_"),inplace=True)
             df.index = df.index.astype(int)
-            overlap_df = pd.DataFrame(columns=["Overlap","Overlap_values"],index=range(1,df.index.max()+21))
-            overlap_df.index.set_names("Position",inplace=True)
+            prolen = get_protien_length(pro_iso,strain)
+            score_dict=dict.fromkeys(range(1,prolen+1))
+            for k, v in score_dict.items():
+                if v is None:
+                    score_dict[k] = 0.0
             for pos in df.index:
                 lastpos = pos+20
-                overlap_list = sorted(df.index[(df.index >=pos) &(df.index<=lastpos)].tolist())
-                overlap_df.at[pos,"Overlap"] = overlap_list
+                overlap_list = sorted(df.index[(df.index >pos) &(df.index<=lastpos)].tolist())
                 templist = []
                 for overlap in overlap_list:
                     templist.append(df.at[overlap,"Mean"])
-                overlap_df.at[pos,"Overlap_values"] = templist
-            rt.writeOutputFile(os.path.join(output_path,pro_iso),"overlap_{}_{}.xlsx".format(pro_iso,strain),overlap_df,True)
- """
+                if len(overlap_list)==0:
+                    score = df.at[pos,"Mean"]
+                    for index in range(pos,lastpos):
+                        score_dict.update({index:score})
+                else:
+                #all of the overlap is positive 
+                    templist.append(df.at[pos,"Mean"])
+                    if all(val > 0 for val in templist):
+                        score = max(templist)
+                        for index in range(pos,lastpos):
+                            score_dict.update({index:score})
+                    elif all(val < 0 for val in templist):
+                        score = max(templist)
+                        for index in range(pos,lastpos):
+                            score_dict.update({index:score})
+                    else:
+                        for index in range(pos,overlap_list[0]):
+                            score_dict.update({index:df.at[pos,"Mean"]})
+        
+        resdict.update({get_short_name_for_strain(pro_iso,strain):score_dict})
+     
+
+    a_file = open(os.path.join(output_path,pro_iso,"overlap_{}.pkl".format(pro_iso)), "wb")
+    pickle.dump(resdict, a_file)
+    a_file.close()
+    #rt.writeOutputFile(os.path.join(output_path,pro_iso),"overlap_{}_1.xlsx".format(pro_iso),overlap_df,True) 
+        
+
+
+#for g in rt.compared_groups:
+    #plot_LR_vs_FET(g)
+#plot_peptide_params()
+plot_summary_stats_auc()
+#spearman()
+

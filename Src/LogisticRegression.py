@@ -8,6 +8,7 @@ ROOT = r"D:\PhD-Tomer"
 LIB_PATH = "Tools_and_Libraries"
 import_Lib_path = os.path.join(ROOT,LIB_PATH)
 sys.path.append(import_Lib_path)
+import time 
 
 from LielTools import GLM_functions as glm
 from LielTools import FileTools 
@@ -16,20 +17,23 @@ def log_regression(df,y_col_name, x_cols_list):
     """
 
 
-def glm_nested_loo(df,l1_l2weights_df,y_col_name, x_cols_list,outpath,protien_isotype,lgtransmethod,alpharange,l1range,cvfolds,
+def glm_nested_loo(df,y_col_name, x_cols_list,outpath,protien_isotype,lgtransmethod,alpharange,l1range,cvfolds,l1_l2weights_df = None,
                     heatmap_figsize=(12, 8), bar_figsize=(10,8),heatmap_annotate_text=True,cross_valid= False,common_peptide_highlight = []):
     """
     """
     alphaL1dict = {}
     GLM_res_list, GLM_test_res_list = [], []
     l1_wt,l2_wt=[],[]
+    s = time.time()
     for i_index_test in range(len(df.index)):
-        print("Test point index :",i_index_test)
         ind_train = list(range(len(df.index)))
         ind_train.remove(i_index_test)
         ind_train = np.array(ind_train)
         ind_test = np.array([i_index_test])
 
+        print("Test point index :",ind_test)
+        start = time.time()
+        count =0
         if cross_valid:
             elasticnetTune = glm.tune_GLM_elastic_net(outpath,model_df = df.iloc[ind_train],y_col_name=y_col_name,x_cols_list = x_cols_list,
                             model_name="GLM_{}_{}".format(protien_isotype,lgtransmethod),alphas=alpharange,l1s=l1range,cv_folds=cvfolds)
@@ -46,17 +50,21 @@ def glm_nested_loo(df,l1_l2weights_df,y_col_name, x_cols_list,outpath,protien_is
         else:
             alpha = l1_l2weights_df.at[i_index_test,"Alpha"]
             l1 =  l1_l2weights_df.at[i_index_test,"L1"]
-            trainres,testres = glm.glm_LOO_LR(df, y_col_name, x_cols_list,ind_train,ind_test,
+
+        trainres,testres = glm.glm_LOO_LR(df, y_col_name, x_cols_list,ind_train,ind_test,
                                         alpha=alpha, L1_wt=l1)
 
-        
+        end = time.time()
+        if count <1:
+            print("Time for tunning and training for 1 data point is {}".format(end-start))
+        count+=1
         GLM_res_list.append(trainres)
         GLM_test_res_list.append(testres)
-
+    e = time.time()
+    print("Time for tunning and training for all data points is {}".format(e-s))
     res = glm.glm_loo_plot(fig_path = outpath,model_test_res_list = GLM_test_res_list,model_name = "GLM_{}_{}".format(lgtransmethod,protien_isotype),y_col_name = y_col_name,
                             no_data_pts =df.shape[0],model_train_res_list = GLM_res_list,
-                            heatmap_figsize=heatmap_figsize, bar_figsize=bar_figsize,heatmap_annotate_text=heatmap_annotate_text, plot_auc =True,
-                            color_specific_yticklabels = common_peptide_highlight)
+                            heatmap_figsize=heatmap_figsize, bar_figsize=bar_figsize,heatmap_annotate_text=heatmap_annotate_text, plot_auc =False) 
     if cross_valid:
         alphaL1dict.update({"Alpha":l1_wt,"L1":l2_wt})
         l1l2df = pd.DataFrame(alphaL1dict)

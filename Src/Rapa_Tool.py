@@ -19,6 +19,9 @@ import numpy as np
 import pandas as pd
 import LogisticRegression as LR
 import matplotlib.gridspec as gridspec
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LogisticRegression
+from sklearn.feature_selection import SelectFromModel
 ROOT = r"D:\PhD-Tomer"
 LIB_PATH = "Tools_and_Libraries"
 PROJECT_PATH = "Projects"
@@ -28,6 +31,7 @@ OUTPUT_PARENT_FOLDER = "output"
 runId = "Exp_1"
 
 UNIVARIATE = True
+#HA_NA
 #compared_groups=["Rapa_Live_Rapa_Dead","PBS_Live_PBS_Dead","Rapa_Dead_PBS_Dead","Rapa_Live_PBS_Live","Live_Dead"]
 if UNIVARIATE:
     compared_groups = ["Live_Dead","PBS","Rap"]
@@ -48,10 +52,12 @@ from LielTools import PlotTools as pT
 #from LielTools import PlotTools
 DEBUG = False
 if DEBUG:
-    alpha_range = [0.1,0.2,0.4, 0.7,1, 2, 4,5, 10, 20,30,50]
-    l1_range =    [0.01, 0.05, 0.1,0.2, 0.4, 0.7, 0.99]
+    #alpha_range = [4,5, 10, 20,30,50]
+    #l1_range =    [0.1,0.2, 0.4, 0.7, 0.99]
+    alpha_range = [0.01, 0.05, 0.1, 0.2, 0.4]
+    l1_range =    [0.1,0.2, 0.4, 0.7, 0.99]
 else:
-    alpha_range = [0.01, 0.05, 0.1, 0.2, 0.4, 0.7, 1, 2, 5, 10, 50]
+    alpha_range = [0.01, 0.05, 0.1, 0.2, 0.4, 0.7, 1, 2, 5,10]
     l1_range = [0.01, 0.05, 0.1, 0.2, 0.4, 0.7, 0.99]
 
 
@@ -201,33 +207,44 @@ def startuniAnalysis(protien_isotype,inputFilePath,experimentPath,exptype,groupT
     
     return res
 
+def get_important_feature(Xtrain,ytrain,num_features):
+    fs = SelectFromModel(LogisticRegression(),threshold=-np.inf,max_features=num_features)
+    fs = fs.fit(Xtrain,ytrain)
+    feature_idx = fs.get_support()
+    feature_name = Xtrain.columns[feature_idx]
+    return feature_name
     
-def multivaraite_analysis(protien_iso,outputpath,inputFilePath,stdmethod = "All",processedFilepath="",group_type="",standarise = False,
-                          cv = False):
+def multivaraite_analysis(protien_iso,outputpath,inputFilePath="",stdmethod = "All",processedFilepath="",group_type="",standarise = False,
+                          cv = False,data = None,l1_l2_weight_df = None):
     """
     """
-    data = get_processed_data(protien_iso,inputpath=inputFilePath,stMethod=stdmethod,processedFileoutputpath = processedFilepath,Gtype=group_type)
+    if data is  None:
+        data = get_processed_data(protien_iso,inputpath=inputFilePath,stMethod=stdmethod,processedFileoutputpath = processedFilepath,Gtype=group_type)
     if standarise:
         data = get_standardised_df(data)
-    '''
-    fig = signi_corr.plot_signi_corr(data,signif_by_method="FDR",figsize=(20,15),aster_size=5,
-                    numbers_size=5,ticks_fontsize=10,title="correlation {}".format(protien_iso))
-    fig_filename = "Correlation_{}.jpg".format(protien_iso)
-    fig_path = os.path.join(outputpath,fig_filename)
-    fig.savefig(fig_path, bbox_inches='tight')
-    '''
 
     
     outcome = "survival_group"
     #remove the outcome column dataframe 
     x_cols_list = DataTools.list_removeItemIfExists(list(data.columns),outcome)
-    
-    common_peptide_list = get_common_peptides_between_LR_EFT(processedFilepath,protien_iso,stdmethod,group_type)
+    X_train, X_test, y_train, y_test = train_test_split(data[x_cols_list], data[outcome], test_size=0.30, random_state=1)
+    if "IgG_IgM" in protien_iso:
+        features_names = get_important_feature(X_train,y_train,130)
+    elif "IgG" in protien_iso:
+        features_names = get_important_feature(X_train,y_train,30)
+    else:
+        features_names = get_important_feature(X_train,y_train,80)
+
+    x_cols_list = DataTools.list_removeItemIfExists(list(features_names),outcome)
+
+    #common_peptide_list = get_common_peptides_between_LR_EFT(processedFilepath,protien_iso,stdmethod,group_type)
     #if cross_validation is false read from the already generated l1 and l2 value list 
     if not cv:
-        l1_l2_df = readInputFiles(processedFilepath,"L1_L2_weights_{}_{}.xlsx".format(stdmethod,protien_iso),read_index=0)
-    resdict= LR.glm_nested_loo(data,l1_l2_df,outcome, x_cols_list,outputpath,protien_iso,stdmethod,alpha_range,l1_range,5,bar_figsize=(50,25),heatmap_figsize=(30,20)
-                    , common_peptide_highlight=common_peptide_list)
+        #l1_l2_df = readInputFiles(processedFilepath,"L1_L2_weights_{}_{}.xlsx".format(stdmethod,protien_iso),read_index=0)
+        resdict= LR.glm_nested_loo(data,outcome, x_cols_list,outputpath,protien_iso,stdmethod,alpha_range,l1_range,5,bar_figsize=(50,25),heatmap_figsize=(30,20),l1_l2weights_df=l1_l2_weight_df)
+    else:
+        resdict= LR.glm_nested_loo(data,outcome, x_cols_list,outputpath,protien_iso,stdmethod,alpha_range,l1_range,5,bar_figsize=(50,25),heatmap_figsize=(30,20),cross_valid=True)
+
     GLM_res_dict.update({protien_iso:resdict})
     '''
     elasticnetTune = glm.tune_GLM_elastic_net(outputpath,model_df = data,y_col_name=outcome,x_cols_list = x_cols_list,
@@ -476,6 +493,7 @@ def get_processed_data(protien_isotype,inputpath="",processedFileoutputpath="",l
 
     
     #check if the file exist     
+    
     optFilename = "GLM_"+protien_isotype+"_"+stMethod+"_"+Gtype+".xlsx"
 
     if os.path.exists(os.path.join(processedFileoutputpath,optFilename)):
@@ -493,7 +511,7 @@ def get_processed_data(protien_isotype,inputpath="",processedFileoutputpath="",l
             '''
             if Gtype == "Live_Dead":
                 df = DataTools.get_df_without_cols(df,["Group"])
-                df =  DataTools.convert_CategoricalToBinary(df)
+                df =  DataTools.convert_CategoricalToBinary(df) 
             else:
                 df = DataTools.get_df_without_cols(df,["survival_group"])
                 df = DataTools.convert_CategoricalToBinary(df)
@@ -509,7 +527,6 @@ def get_processed_data(protien_isotype,inputpath="",processedFileoutputpath="",l
             df["survival_group"] = df["survival_group"].replace(["Live","Dead"],[1,0])
             df["Group"] = df["Group"].replace(["PBS","RAP"],[0,1])
         writeOutputFile(processedFileoutputpath,optFilename,df)
-    
     return df
 
 
@@ -592,13 +609,14 @@ def get_compared_groups_on_pvalue(expPath,protien_isotype,stMethod,adjustPvalue=
 
 
 
-def draw_venndiagram(df,dfcompare,label=("",""),fig_rows=4, fig_cols=5, figsize=(30, 20),fig_save_path = "",title = "",
+def draw_venndiagram(set_dict,label=("",""),fig_rows=4, fig_cols=5, figsize=(30, 20),fig_save_path = "",title = "",
                         title_fontsize =14,colormap = ("orange","blue"),item_fontsize = 8,isannotate = False):
     
     sns.set_palette(sns.color_palette("Set2"))
+    plt.rcParams['font.family'] = 'Arial'
 
     #fig, axes = plt.subplots(fig_rows, fig_cols, figsize=figsize,squeeze=False)
-    fig = plt.figure(figsize= figsize)
+    """ fig = plt.figure(figsize= figsize)
     subplot = 220
     for i in range(len(compared_groups)):
         subplot+=1
@@ -624,42 +642,45 @@ def draw_venndiagram(df,dfcompare,label=("",""),fig_rows=4, fig_cols=5, figsize=
             if (LRGroup&EFTGroup):
                 v.get_label_by_id('11').set_text("\n".join(LRGroup&EFTGroup))
                 v.get_label_by_id('11').set_fontsize(item_fontsize)
-        ax.set_title(label = group_name,loc="center",fontsize=20)
+        ax.set_title(label = group_name,loc="center",fontsize=20) """
     
-    '''
-    gs = gridspec.GridSpec(2, 2)
-    group_size = len(compared_groups)
+    sets_to_plot = len(set_dict)
+    setkeys = list(set_dict.keys())
     i = 0 
-    lr_eft_intersection_dict = {}
+    fig, ax = plt.subplots(fig_rows, fig_cols, figsize=figsize)
     for row in range(fig_rows):
         for col in range(fig_cols):
-             if (i<group_size):
+                if (i<sets_to_plot):
+                    '''
                  group_name = get_comparisionname_from_group(compared_groups[i])
                 #create a set for the particular group 
                  LRGroup = set(df.loc[df["group_names"]==group_name,"Antigen"].to_numpy())
                  EFTGroup = set(dfcompare.loc[dfcompare["group_names"]==group_name,"Antigen"].to_numpy())
                  lr_eft_intersection_dict.update({compared_groups[i]:LRGroup&EFTGroup})
-                 ax = plt.subplot(gs[0, 0:2])
-                 v = venn2_unweighted([LRGroup,EFTGroup],set_labels = label,ax = ax,set_colors=colormap,alpha=0.5)
-                 if isannotate:
-                    if(LRGroup-EFTGroup):
-                        v.get_label_by_id('10').set_text("\n".join(LRGroup-EFTGroup))
-                        v.get_label_by_id('10').set_fontsize(item_fontsize)
-                    else:
-                        v.get_label_by_id('10').set_text("")
-                    if(EFTGroup-LRGroup):
-                        v.get_label_by_id('01').set_text("\n".join(EFTGroup-LRGroup))
-                        v.get_label_by_id('01').set_fontsize(item_fontsize)
-                    if (LRGroup&EFTGroup):
-                        v.get_label_by_id('11').set_text("\n".join(LRGroup&EFTGroup))
-                        v.get_label_by_id('11').set_fontsize(item_fontsize)
-                 axes[row][col].set_title(label = group_name,loc="center")
-            
-             else:
-                fig.delaxes(axes[row,col])
-             i+=1
-    '''
-    fig.suptitle(title, fontsize=title_fontsize)
+                 '''
+                    set1 = set_dict[setkeys[i]][0]
+                    set2 = set_dict[setkeys[i]][1]
+                    v = venn2_unweighted([set1,set2],set_labels = label,ax = ax[row][col],set_colors=colormap,alpha=0.5)
+                    for text in v.set_labels:
+                        text.set_fontsize(20)
+                    if isannotate:
+                        if(set1-set2):
+                            v.get_label_by_id('10').set_text("\n".join(set1-set2))
+                            v.get_label_by_id('10').set_fontsize(item_fontsize)
+                        else:
+                            v.get_label_by_id('10').set_text("")
+                        if(set2-set1):
+                            v.get_label_by_id('01').set_text("\n".join(set2-set1))
+                            v.get_label_by_id('01').set_fontsize(item_fontsize)
+                        if (set1&set2):
+                            v.get_label_by_id('11').set_text("\n".join(set1&set2))
+                            v.get_label_by_id('11').set_fontsize(item_fontsize)
+                    ax[row][col].set_title(label = setkeys[i].replace("_"," "),loc="center",fontdict={'fontsize': 20, 'fontweight': 'bold'})
+                else:
+                    fig.delaxes(ax[row,col])
+                i+=1
+    
+    fig.suptitle(title, fontsize=title_fontsize,weight="bold")
     fig.tight_layout()
     fig.savefig(fig_save_path, bbox_inches='tight')
     plt.close("all")
@@ -862,53 +883,7 @@ def rapa_draw_df_box_plot(x_col,y_col_names,modeldf,df = None,output_file_path=N
 
 
 
-def get_l1_L2_tunned_parameter(protien,logTranform):
-    l1 = 0.0
-    l2 = 0.0
-    if protien == "HA_IgM":
-        if logTranform == "ShaprioTest":
-            l1 = 10.0
-            l2 = 0.005
-        elif logTranform == "TransformAll":
-            l1 = 5.0
-            l2 = 0.005
-        else:
-            l1 = 0.01
-            l2 = 0.05
-    elif protien == "HA_IgG":
-        if logTranform == "ShaprioTest":
-            l1 = 0.01
-            l2 = 0.05
-            
-        elif logTranform == "TransformAll":
-            l1 = 0.01
-            l2 = 0.99
-        else:
-            l1 = 0.001
-            l2 = 0.4
-    
-    elif protien == "NA_IgM":
-        if logTranform == "ShaprioTest":
-            l1 = 0.1
-            l2 = 0.05
-        elif logTranform == "TransformAll":
-            l1 = 0.005
-            l2 = 0.7
-        else:
-            l1 = 0.001
-            l2 = 0.7
-    else:
-         if logTranform == "ShaprioTest":
-            l1 = 0.001
-            l2 = 0.01
-         elif logTranform == "TransformAll":
-            l1 = 0.005
-            l2 = 0.99
-         else:
-            l1 = 0.2
-            l2 = 0.01
 
-    return l1,l2
 
 def get_common_peptides_between_LR_EFT(df1,df2,group):
     #temp need to change this is future 
