@@ -314,7 +314,7 @@ def combine_IgG_IgM(cv):
         
     rt.writeOutputFile(output_path,"RoC_AUC_protiens_iso.xlsx",res_df,write_index = True)
 #rapamain(isUnivariate=True)
-#combine_IgG_IgM(False)
+combine_IgG_IgM(False)
 
 def perform_GLM(protien_isotype,inputfilename,no_features=[],model_name="",outputfilename="",l1=0.01,l2=0.05):
     rootpath = os.path.join(rt.ROOT,rt.PROJECT_PATH,rt.project_name,rt.OUTPUT_PARENT_FOLDER)
